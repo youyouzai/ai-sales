@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="72" height="72" viewBox="0 0 72 72">
+  <defs>
+    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0f0c29"/>
+      <stop offset="50%" style="stop-color:#302b63"/>
+      <stop offset="100%" style="stop-color:#24243e"/>
+    </linearGradient>
+  </defs>
+  <rect width="72" height="72" rx="13" fill="url(#g)"/>
+  <circle cx="36" cy="30.24" r="20.160000000000004" fill="rgba(108,99,255,0.3)"/>
+  <text x="50%" y="48%" dominant-baseline="middle" text-anchor="middle" font-size="40" font-family="serif">⭐</text>
+  <text x="50%" y="82%" dominant-baseline="middle" text-anchor="middle" font-size="9" font-family="Arial,sans-serif" fill="#a78bfa" font-weight="bold">销售之星</text>
+</svg>

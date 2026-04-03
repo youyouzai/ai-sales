@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#4f46e5" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="销售之星" />
+  <title>销售之星 - 手机销售助手</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="stylesheet" href="styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <!-- Splash Screen -->
+  <div id="splash" class="splash">
+    <div class="splash-inner">
+      <div class="splash-icon">📱</div>
+      <h1 class="splash-title">销售之星</h1>
+      <p class="splash-sub">激励你，超越自我</p>
+      <div class="splash-bar"><div class="splash-fill"></div></div>
+    </div>
+  </div>
+
+  <!-- App Shell -->
+  <div id="app" class="app hidden">
+
+    <!-- Top Header -->
+    <header class="top-header">
+      <div class="header-left">
+        <div class="avatar" id="headerAvatar">张</div>
+        <div>
+          <div class="header-name" id="headerName">张伟</div>
+          <div class="header-role">金牌销售顾问</div>
+        </div>
+      </div>
+      <div class="header-right">
+        <div class="header-badge">
+          <span class="badge-icon">🔥</span>
+          <span id="streakCount">7天</span>
+        </div>
+        <button class="notif-btn" onclick="showNotifications()">
+          <span class="notif-icon">🔔</span>
+          <span class="notif-dot" id="notifDot"></span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Page Container -->
+    <main class="page-container">
+
+      <!-- ===== DASHBOARD PAGE ===== -->
+      <section id="page-dashboard" class="page active">
+        <div class="page-scroll">
+          <!-- Motivation Banner -->
+          <div class="motivation-banner">
+            <div class="motivation-text" id="motivationText">
+              <span class="motivation-quote">"今天的努力，是明天的奖励！"</span>
+              <span class="motivation-sub">距月末还有 <strong id="daysLeft">18</strong> 天，冲吧！</span>
+            </div>
+            <div class="motivation-emoji">🚀</div>
+          </div>
+
+          <!-- Stats Cards -->
+          <div class="stats-row">
+            <div class="stat-card stat-gold" onclick="navigate('money')">
+              <div class="stat-icon">💰</div>
+              <div class="stat-value" id="dashEarnings">¥12,480</div>
+              <div class="stat-label">本月收入</div>
+              <div class="stat-trend up">↑ 23%</div>
+            </div>
+            <div class="stat-card stat-blue" onclick="navigate('orders')">
+              <div class="stat-icon">📦</div>
+              <div class="stat-value" id="dashOrders">38</div>
+              <div class="stat-label">本月订单</div>
+              <div class="stat-trend up">↑ 5单</div>
+            </div>
+            <div class="stat-card stat-green" onclick="navigate('customers')">
+              <div class="stat-icon">👥</div>
+              <div class="stat-value" id="dashCustomers">126</div>
+              <div class="stat-label">客户总数</div>
+              <div class="stat-trend up">↑ 8人</div>
+            </div>
+            <div class="stat-card stat-purple" onclick="navigate('rank')">
+              <div class="stat-icon">🏆</div>
+              <div class="stat-value" id="dashRank">#2</div>
+              <div class="stat-label">团队排名</div>
+              <div class="stat-trend neutral">↔ 持平</div>
+            </div>
+          </div>
+
+          <!-- Progress to Goal -->
+          <div class="card goal-card">
+            <div class="card-header">
+              <span class="card-title">🎯 本月目标进度</span>
+              <span class="goal-pct" id="goalPct">77%</span>
+            </div>
+            <div class="progress-bar-wrap">
+              <div class="progress-bar-bg">
+                <div class="progress-bar-fill" id="goalBar" style="width:77%"></div>
+              </div>
+            </div>
+            <div class="goal-detail">
+              <span>已完成 <strong id="goalDone">38台</strong></span>
+              <span>目标 <strong id="goalTarget">50台</strong></span>
+            </div>
+            <div class="goal-incentive">再卖 <span class="highlight">12台</span> 即可解锁 <span class="highlight gold">¥3,000奖金</span> 🎉</div>
+          </div>
+
+          <!-- Sales Trend Chart -->
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">📈 近7日销量趋势</span>
+            </div>
+            <canvas id="trendChart" height="160"></canvas>
+          </div>
+
+          <!-- Today's Tasks -->
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">✅ 今日任务</span>
+              <span class="task-badge" id="taskDone">2/4</span>
+            </div>
+            <div class="task-list" id="todayTasks"></div>
+          </div>
+
+          <!-- Hot Products -->
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">🔥 爆款推荐</span>
+              <span class="see-all" onclick="navigate('products')">查看全部</span>
+            </div>
+            <div class="hot-products" id="hotProducts"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== PRODUCTS PAGE ===== -->
+      <section id="page-products" class="page">
+        <div class="page-scroll">
+          <div class="page-title-bar">
+            <h2>商品清单</h2>
+            <div class="search-bar">
+              <input type="text" id="productSearch" placeholder="搜索商品..." oninput="filterProducts()" />
+            </div>
+          </div>
+
+          <!-- Filter Tabs -->
+          <div class="filter-tabs" id="productFilters">
+            <button class="filter-tab active" onclick="filterByBrand('all', this)">全部</button>
+            <button class="filter-tab" onclick="filterByBrand('Apple', this)">苹果</button>
+            <button class="filter-tab" onclick="filterByBrand('Samsung', this)">三星</button>
+            <button class="filter-tab" onclick="filterByBrand('Huawei', this)">华为</button>
+            <button class="filter-tab" onclick="filterByBrand('Xiaomi', this)">小米</button>
+            <button class="filter-tab" onclick="filterByBrand('OPPO', this)">OPPO</button>
+          </div>
+
+          <!-- Sort Options -->
+          <div class="sort-row">
+            <span class="sort-label">排序：</span>
+            <select id="productSort" onchange="sortProducts()" class="sort-select">
+              <option value="profit_desc">利润 高→低</option>
+              <option value="profit_asc">利润 低→高</option>
+              <option value="price_desc">价格 高→低</option>
+              <option value="price_asc">价格 低→高</option>
+              <option value="stock_desc">库存 多→少</option>
+            </select>
+          </div>
+
+          <div class="product-grid" id="productGrid"></div>
+        </div>
+      </section>
+
+      <!-- Product Detail Modal -->
+      <div class="modal-overlay" id="productModal" onclick="closeProductModal()">
+        <div class="modal-card" onclick="event.stopPropagation()">
+          <button class="modal-close" onclick="closeProductModal()">✕</button>
+          <div id="productModalContent"></div>
+        </div>
+      </div>
+
+      <!-- ===== ORDERS PAGE ===== -->
+      <section id="page-orders" class="page">
+        <div class="page-scroll">
+          <div class="page-title-bar">
+            <h2>订单管理</h2>
+            <button class="add-btn" onclick="showAddOrder()">+ 新建</button>
+          </div>
+
+          <!-- Order Stats -->
+          <div class="order-stats-row" id="orderStats"></div>
+
+          <!-- Order Filters -->
+          <div class="filter-tabs">
+            <button class="filter-tab active" onclick="filterOrders('all', this)">全部</button>
+            <button class="filter-tab" onclick="filterOrders('pending', this)">待处理</button>
+            <button class="filter-tab" onclick="filterOrders('processing', this)">进行中</button>
+            <button class="filter-tab" onclick="filterOrders('completed', this)">已完成</button>
+            <button class="filter-tab" onclick="filterOrders('cancelled', this)">已取消</button>
+          </div>
+
+          <div class="order-list" id="orderList"></div>
+        </div>
+      </section>
+
+      <!-- ===== CUSTOMERS PAGE ===== -->
+      <section id="page-customers" class="page">
+        <div class="page-scroll">
+          <div class="page-title-bar">
+            <h2>客户管理</h2>
+            <button class="add-btn" onclick="showAddCustomer()">+ 新增</button>
+          </div>
+
+          <div class="search-bar" style="margin:0 16px 12px">
+            <input type="text" id="customerSearch" placeholder="搜索客户姓名/手机..." oninput="filterCustomers()" />
+          </div>
+
+          <!-- Customer Segments -->
+          <div class="filter-tabs">
+            <button class="filter-tab active" onclick="filterBySegment('all', this)">全部</button>
+            <button class="filter-tab" onclick="filterBySegment('hot', this)">🔥 热客</button>
+            <button class="filter-tab" onclick="filterBySegment('warm', this)">☀️ 温客</button>
+            <button class="filter-tab" onclick="filterBySegment('cold', this)">❄️ 冷客</button>
+            <button class="filter-tab" onclick="filterBySegment('vip', this)">👑 VIP</button>
+          </div>
+
+          <div class="customer-list" id="customerList"></div>
+        </div>
+      </section>
+
+      <!-- Customer Detail Modal -->
+      <div class="modal-overlay" id="customerModal" onclick="closeCustomerModal()">
+        <div class="modal-card modal-lg" onclick="event.stopPropagation()">
+          <button class="modal-close" onclick="closeCustomerModal()">✕</button>
+          <div id="customerModalContent"></div>
+        </div>
+      </div>
+
+      <!-- Add Visit Modal -->
+      <div class="modal-overlay" id="visitModal" onclick="closeVisitModal()">
+        <div class="modal-card" onclick="event.stopPropagation()">
+          <button class="modal-close" onclick="closeVisitModal()">✕</button>
+          <div id="visitModalContent"></div>
+        </div>
+      </div>
+
+      <!-- ===== MONEY / INCENTIVE PAGE ===== -->
+      <section id="page-money" class="page">
+        <div class="page-scroll">
+          <!-- Earnings Hero -->
+          <div class="earnings-hero">
+            <div class="earnings-label">本月已赚</div>
+            <div class="earnings-big" id="earningsBig">¥12,480</div>
+            <div class="earnings-sub">预计月底到手 <span id="earningsProjected">¥16,200</span></div>
+            <div class="earnings-progress">
+              <div class="ep-item">
+                <div class="ep-val" id="epBase">¥8,000</div>
+                <div class="ep-lbl">底薪</div>
+              </div>
+              <div class="ep-divider">+</div>
+              <div class="ep-item">
+                <div class="ep-val" id="epComm">¥3,480</div>
+                <div class="ep-lbl">提成</div>
+              </div>
+              <div class="ep-divider">+</div>
+              <div class="ep-item">
+                <div class="ep-val" id="epBonus">¥1,000</div>
+                <div class="ep-lbl">奖金</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Incentive Milestones -->
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">🏅 激励里程碑</span>
+            </div>
+            <div class="milestones" id="milestones"></div>
+          </div>
+
+          <!-- Commission Chart -->
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">💵 收入构成</span>
+            </div>
+            <canvas id="incomeChart" height="200"></canvas>
+          </div>
+
+          <!-- Monthly History -->
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">📅 近6月收入对比</span>
+            </div>
+            <canvas id="historyChart" height="160"></canvas>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== RANK / LEADERBOARD PAGE ===== -->
+      <section id="page-rank" class="page">
+        <div class="page-scroll">
+          <div class="page-title-bar">
+            <h2>销售排行榜</h2>
+            <select id="rankPeriod" onchange="renderRank()" class="sort-select">
+              <option value="month">本月</option>
+              <option value="week">本周</option>
+              <option value="quarter">本季度</option>
+            </select>
+          </div>
+
+          <!-- Top 3 Podium -->
+          <div class="podium" id="rankPodium"></div>
+
+          <!-- Full Rank List -->
+          <div class="rank-list" id="rankList"></div>
+
+          <!-- My Rank Card -->
+          <div class="card my-rank-card" id="myRankCard"></div>
+        </div>
+      </section>
+
+      <!-- ===== TRAINING PAGE ===== -->
+      <section id="page-training" class="page">
+        <div class="page-scroll">
+          <div class="page-title-bar">
+            <h2>培训中心</h2>
+            <div class="xp-badge">⭐ <span id="userXP">320</span> XP</div>
+          </div>
+
+          <!-- Daily Tip -->
+          <div class="daily-tip" id="dailyTip"></div>
+
+          <!-- Learning Path -->
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">🛤️ 学习路径</span>
+              <span class="see-all" id="learningProgress">进度 40%</span>
+            </div>
+            <div class="learning-path" id="learningPath"></div>
+          </div>
+
+          <!-- Skills Library -->
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">📚 销售技巧库</span>
+            </div>
+            <div class="filter-tabs" style="padding:0;margin-bottom:12px">
+              <button class="filter-tab active" onclick="filterTips('all', this)">全部</button>
+              <button class="filter-tab" onclick="filterTips('open', this)">开场白</button>
+              <button class="filter-tab" onclick="filterTips('objection', this)">异议处理</button>
+              <button class="filter-tab" onclick="filterTips('close', this)">成交技巧</button>
+              <button class="filter-tab" onclick="filterTips('followup', this)">跟进技巧</button>
+            </div>
+            <div class="tips-list" id="tipsList"></div>
+          </div>
+
+          <!-- Quizzes -->
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">🧠 每日一练</span>
+              <span class="xp-reward">+20 XP</span>
+            </div>
+            <div id="quizArea"></div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Bottom Navigation -->
+    <nav class="bottom-nav">
+      <button class="nav-item active" onclick="navigate('dashboard')">
+        <span class="nav-icon">🏠</span>
+        <span class="nav-label">首页</span>
+      </button>
+      <button class="nav-item" onclick="navigate('products')">
+        <span class="nav-icon">📱</span>
+        <span class="nav-label">商品</span>
+      </button>
+      <button class="nav-item" onclick="navigate('orders')">
+        <span class="nav-icon">📦</span>
+        <span class="nav-label">订单</span>
+        <span class="nav-badge" id="pendingBadge">3</span>
+      </button>
+      <button class="nav-item" onclick="navigate('customers')">
+        <span class="nav-icon">👥</span>
+        <span class="nav-label">客户</span>
+      </button>
+      <button class="nav-item" onclick="navigate('money')">
+        <span class="nav-icon">💰</span>
+        <span class="nav-label">收益</span>
+      </button>
+      <button class="nav-item" onclick="navigate('training')">
+        <span class="nav-icon">🎓</span>
+        <span class="nav-label">培训</span>
+      </button>
+    </nav>
+
+  </div>
+
+  <!-- Add Order Modal -->
+  <div class="modal-overlay" id="addOrderModal" onclick="closeAddOrder()">
+    <div class="modal-card" onclick="event.stopPropagation()">
+      <button class="modal-close" onclick="closeAddOrder()">✕</button>
+      <h3 class="modal-title">新建订单</h3>
+      <div class="form-group">
+        <label>客户姓名</label>
+        <input type="text" id="newOrderCustomer" placeholder="输入客户姓名" class="form-input" />
+      </div>
+      <div class="form-group">
+        <label>商品</label>
+        <select id="newOrderProduct" class="form-input"></select>
+      </div>
+      <div class="form-group">
+        <label>数量</label>
+        <input type="number" id="newOrderQty" value="1" min="1" class="form-input" />
+      </div>
+      <div class="form-group">
+        <label>备注</label>
+        <textarea id="newOrderNote" placeholder="备注信息..." class="form-input" rows="3"></textarea>
+      </div>
+      <button class="btn-primary full-width" onclick="submitOrder()">提交订单</button>
+    </div>
+  </div>
+
+  <!-- Add Customer Modal -->
+  <div class="modal-overlay" id="addCustomerModal" onclick="closeAddCustomer()">
+    <div class="modal-card" onclick="event.stopPropagation()">
+      <button class="modal-close" onclick="closeAddCustomer()">✕</button>
+      <h3 class="modal-title">新增客户</h3>
+      <div class="form-group">
+        <label>姓名</label>
+        <input type="text" id="newCustName" placeholder="客户姓名" class="form-input" />
+      </div>
+      <div class="form-group">
+        <label>手机号</label>
+        <input type="tel" id="newCustPhone" placeholder="手机号码" class="form-input" />
+      </div>
+      <div class="form-group">
+        <label>年龄</label>
+        <input type="number" id="newCustAge" placeholder="年龄" class="form-input" />
+      </div>
+      <div class="form-group">
+        <label>职业</label>
+        <input type="text" id="newCustJob" placeholder="职业" class="form-input" />
+      </div>
+      <div class="form-group">
+        <label>预算范围</label>
+        <select id="newCustBudget" class="form-input">
+          <option value="1000-2000">¥1,000 - ¥2,000</option>
+          <option value="2000-4000">¥2,000 - ¥4,000</option>
+          <option value="4000-6000">¥4,000 - ¥6,000</option>
+          <option value="6000+">¥6,000以上</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>客户类型</label>
+        <select id="newCustSegment" class="form-input">
+          <option value="hot">🔥 热客</option>
+          <option value="warm">☀️ 温客</option>
+          <option value="cold">❄️ 冷客</option>
+          <option value="vip">👑 VIP</option>
+        </select>
+      </div>
+      <button class="btn-primary full-width" onclick="submitCustomer()">保存客户</button>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div class="toast" id="toast"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
