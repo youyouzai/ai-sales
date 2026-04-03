@@ -58,10 +58,10 @@ function minifyCss(css) {
 }
 
 function minifyJs(js) {
+  // 只移除块注释，不处理行注释（避免误伤字符串中的 https:// 等）
   return js
-    .replace(/\/\*[\s\S]*?\*\//g, '')        // 移除块注释
-    .replace(/\/\/[^\n]*/g, '')              // 移除行注释
-    .replace(/\n\s*\n/g, '\n')              // 合并空行
+    .replace(/\/\*[\s\S]*?\*\//g, '')        // 移除 /* */ 块注释
+    .replace(/\n{3,}/g, '\n\n')             // 合并多余空行
     .trim();
 }
 
@@ -107,13 +107,14 @@ async function build() {
   console.log(`  ✓ JS   ${getFileSize(jsRaw)} → ${getFileSize(jsMin)}`);
 
   // 4. 修改 app.js：移除 Service Worker 注册（standalone 文件不需要）
-  const jsFinal = jsMin.replace(
-    /if\s*\(\s*'serviceWorker'\s*in\s*navigator\s*\)[\s\S]*?navigator\.serviceWorker\.register[^}]+\}\s*\)\s*\.catch[^;]+;/g,
-    ''
-  ).replace(
-    /if\s*\('serviceWorker'\s*in\s*navigator\)\s*\{[^}]*\}/g,
-    ''
-  );
+  // 直接替换 app.js 中的 SW 注册代码段（精确字符串匹配）
+  const swBlock = `if ('serviceWorker' in navigator) {\n    navigator.serviceWorker.register('/sw.js').catch(() => {});\n  }`;
+  const jsFinal = jsMin.includes(swBlock)
+    ? jsMin.replace(swBlock, '/* SW disabled in standalone mode */')
+    : jsMin.replace(
+        /if\s*\(['"]\s*serviceWorker\s*['"]\s+in\s+navigator\s*\)\s*\{[^}]*navigator\.serviceWorker\.register[^;]+;[^}]*\}/,
+        '/* SW disabled in standalone mode */'
+      );
 
   // 5. 拼装 HTML
   console.log('\n🔨 合并为单文件...');
