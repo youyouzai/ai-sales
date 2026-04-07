@@ -1,6 +1,27 @@
 /* ===== Sales Star PWA - Main Application ===== */
 
-// ===== DATA STORE =====
+// ===== API CONFIG =====
+const API_BASE = 'http://localhost:8080/api';
+const CURRENT_USER_ID = 1; // 当前登录用户ID，实际项目可从登录态获取
+
+async function api(path, options = {}) {
+  const sep = path.includes('?') ? '&' : '?';
+  const url = `${API_BASE}${path}${sep}userId=${CURRENT_USER_ID}`;
+  try {
+    const res = await fetch(url, {
+      headers: { 'Content-Type': 'application/json' },
+      ...options,
+    });
+    const json = await res.json();
+    if (json.code !== 200) throw new Error(json.message);
+    return json.data;
+  } catch (e) {
+    console.warn(`[API] ${path} 失败，降级使用本地数据:`, e.message);
+    return null; // 调用方自行处理 null（降级本地数据）
+  }
+}
+
+// ===== LOCAL DATA STORE (离线降级数据) =====
 const store = {
   user: {
     name: '张伟', avatar: '张', role: '金牌销售顾问',
@@ -143,61 +164,126 @@ function onPageEnter(page) {
 }
 
 // ===== DASHBOARD =====
-function renderDashboard() {
-  const now = new Date();
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  const daysLeft = daysInMonth - now.getDate();
-  document.getElementById('daysLeft').textContent = daysLeft;
-
+async function renderDashboard() {
   const quote = store.motivationQuotes[Math.floor(Math.random() * store.motivationQuotes.length)];
   document.getElementById('motivationText').querySelector('.motivation-quote').textContent = quote;
 
-  const earnings = store.user.base + store.user.commission + store.user.bonus;
-  document.getElementById('dashEarnings').textContent = '¥' + earnings.toLocaleString();
-  const pct = Math.round(store.user.done / store.user.target * 100);
-  document.getElementById('goalPct').textContent = pct + '%';
-  document.getElementById('goalBar').style.width = pct + '%';
-  document.getElementById('goalDone').textContent = store.user.done + '台';
-  document.getElementById('goalTarget').textContent = store.user.target + '台';
+  const data = await api('/dashboard');
+  if (data) {
+    // 用户信息
+    const u = data.user;
+    document.getElementById('headerName').textContent = u.name;
+    document.getElementById('headerAvatar').textContent = u.avatar;
+    if (u.rank) document.getElementById('dashRank').textContent = '#' + u.rank;
 
-  renderTodayTasks();
-  renderHotProducts();
-  renderTrendChart();
+    // 收益
+    const e = data.earnings;
+    document.getElementById('dashEarnings').textContent = '¥' + fmtMoney(e.total);
+
+    // 目标
+    const g = data.goal;
+    document.getElementById('daysLeft').textContent = g.daysLeft;
+    document.getElementById('goalPct').textContent = g.pct + '%';
+    document.getElementById('goalBar').style.width = g.pct + '%';
+    document.getElementById('goalDone').textContent = g.done + '台';
+    document.getElementById('goalTarget').textContent = g.target + '台';
+
+    // 今日任务
+    if (data.tasks) renderTodayTasksFromData(data.tasks);
+
+    // 爆款商品
+    if (data.hotProducts) renderHotProductsFromData(data.hotProducts);
+
+    // 趋势图
+    if (data.trendData) renderTrendChartFromData(data.trendData);
+
+    // 更新订单数
+    document.getElementById('dashOrders').textContent = store.orders.filter(o => o.status !== 'cancelled').length;
+    document.getElementById('dashCustomers').textContent = store.customers.length;
+  } else {
+    // 降级：使用本地数据
+    const now = new Date();
+    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    document.getElementById('daysLeft').textContent = daysInMonth - now.getDate();
+    const earnings = store.user.base + store.user.commission + store.user.bonus;
+    document.getElementById('dashEarnings').textContent = '¥' + earnings.toLocaleString();
+    const pct = Math.round(store.user.done / store.user.target * 100);
+    document.getElementById('goalPct').textContent = pct + '%';
+    document.getElementById('goalBar').style.width = pct + '%';
+    document.getElementById('goalDone').textContent = store.user.done + '台';
+    document.getElementById('goalTarget').textContent = store.user.target + '台';
+    renderTodayTasks();
+    renderHotProducts();
+    renderTrendChart();
+  }
 }
 
-function renderTodayTasks() {
+function fmtMoney(fen) {
+  // 后端金额单位为"分"，前端显示转为"元"
+  return (fen / 100).toLocaleString();
+}
+
+function renderTodayTasksFromData(tasks) {
   const el = document.getElementById('todayTasks');
-  const done = store.tasks.filter(t => t.done).length;
-  document.getElementById('taskDone').textContent = done + '/' + store.tasks.length;
-  el.innerHTML = store.tasks.map(t => `
+  const done = tasks.filter(t => t.done).length;
+  document.getElementById('taskDone').textContent = done + '/' + tasks.length;
+  el.innerHTML = tasks.map(t => `
     <div class="task-item ${t.done ? 'done' : ''}" onclick="toggleTask(${t.id})">
       <div class="task-check">${t.done ? '✓' : ''}</div>
-      <span class="task-text">${t.text}</span>
+      <span class="task-text">${t.content}</span>
       <span class="task-xp">+${t.xp}XP</span>
     </div>`).join('');
 }
 
-function toggleTask(id) {
-  const task = store.tasks.find(t => t.id === id);
-  if (task) {
-    task.done = !task.done;
-    if (task.done) {
-      store.user.xp += task.xp;
-      showToast('✅ 任务完成！+' + task.xp + ' XP');
+function renderTodayTasks() {
+  renderTodayTasksFromData(store.tasks.map(t => ({ ...t, content: t.text })));
+}
+
+async function toggleTask(id) {
+  const data = await api(`/tasks/${id}/toggle`, { method: 'PUT' });
+  if (data) {
+    showToast(data.done ? '✅ 任务完成！+' + data.xp + ' XP' : '↩ 任务已撤销');
+    renderDashboard();
+  } else {
+    const task = store.tasks.find(t => t.id === id);
+    if (task) {
+      task.done = !task.done;
+      if (task.done) { store.user.xp += task.xp; showToast('✅ 任务完成！+' + task.xp + ' XP'); }
+      renderTodayTasks();
     }
-    renderTodayTasks();
   }
+}
+
+function renderHotProductsFromData(products) {
+  document.getElementById('hotProducts').innerHTML = products.map(p => `
+    <div class="hot-product-card" onclick="showProductDetail(${p.id})">
+      <div class="hot-product-emoji">${p.emoji}</div>
+      <div class="hot-product-name">${p.name}</div>
+      <div class="hot-product-profit">+¥${fmtMoney(p.profit)}</div>
+      <div class="hot-product-tag">利润/台</div>
+    </div>`).join('');
 }
 
 function renderHotProducts() {
   const sorted = [...store.products].sort((a, b) => (b.price - b.cost) - (a.price - a.cost)).slice(0, 5);
-  document.getElementById('hotProducts').innerHTML = sorted.map(p => `
-    <div class="hot-product-card" onclick="showProductDetail(${p.id})">
-      <div class="hot-product-emoji">${p.emoji}</div>
-      <div class="hot-product-name">${p.name}</div>
-      <div class="hot-product-profit">+¥${(p.price - p.cost).toLocaleString()}</div>
-      <div class="hot-product-tag">利润/台</div>
-    </div>`).join('');
+  renderHotProductsFromData(sorted.map(p => ({ ...p, profit: (p.price - p.cost) * 100 })));
+}
+
+function renderTrendChartFromData(trendData) {
+  const ctx = document.getElementById('trendChart');
+  if (!ctx) return;
+  if (state.charts.trend) { state.charts.trend.destroy(); }
+  const labels = ['6天前', '5天前', '4天前', '3天前', '昨天', '今天'];
+  // trendData 可能7个或6个元素
+  const data = trendData.slice(-6);
+  state.charts.trend = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{ data, borderColor: '#4f46e5', backgroundColor: 'rgba(79,70,229,0.08)', fill: true, tension: 0.4, pointBackgroundColor: '#6366f1', pointRadius: 4, borderWidth: 2 }]
+    },
+    options: { responsive: true, plugins: { legend: { display: false } }, scales: { x: { grid: { color: 'rgba(0,0,0,0.04)' }, ticks: { color: '#9ca3af', font: { size: 11 } } }, y: { grid: { color: 'rgba(0,0,0,0.04)' }, ticks: { color: '#9ca3af', font: { size: 11 } }, beginAtZero: true } } }
+  });
 }
 
 function renderTrendChart() {
@@ -233,45 +319,38 @@ function renderTrendChart() {
 }
 
 // ===== PRODUCTS =====
-function renderProducts() {
-  applyProductFilters();
-}
+async function renderProducts() { await applyProductFilters(); }
 
-function applyProductFilters() {
-  const search = document.getElementById('productSearch')?.value.toLowerCase() || '';
+async function applyProductFilters() {
+  const keyword = document.getElementById('productSearch')?.value.trim() || '';
   const brand = state.productFilter;
   const sort = document.getElementById('productSort')?.value || 'profit_desc';
 
-  let list = store.products.filter(p => {
-    const matchBrand = brand === 'all' || p.brand === brand;
-    const matchSearch = p.name.toLowerCase().includes(search) || p.brand.toLowerCase().includes(search);
-    return matchBrand && matchSearch;
-  });
+  let params = `sort=${sort}`;
+  if (brand && brand !== 'all') params += `&brand=${encodeURIComponent(brand)}`;
+  if (keyword) params += `&keyword=${encodeURIComponent(keyword)}`;
 
-  const sortFns = {
-    profit_desc: (a, b) => (b.price - b.cost) - (a.price - a.cost),
-    profit_asc: (a, b) => (a.price - a.cost) - (b.price - b.cost),
-    price_desc: (a, b) => b.price - a.price,
-    price_asc: (a, b) => a.price - b.price,
-    stock_desc: (a, b) => b.stock - a.stock,
-  };
-  list.sort(sortFns[sort] || sortFns.profit_desc);
-
-  const profitMargin = p => Math.round((p.price - p.cost) / p.price * 100);
+  let list = await api(`/products?${params}`);
+  if (!list) {
+    // 降级：本地筛选
+    list = store.products
+      .filter(p => (brand === 'all' || p.brand === brand) && (!keyword || p.name.toLowerCase().includes(keyword.toLowerCase())))
+      .map(p => ({ ...p, profit: (p.price - p.cost) * 100, profitMargin: Math.round((p.price - p.cost) / p.price * 100), price: p.price * 100, cost: p.cost * 100 }));
+  }
 
   document.getElementById('productGrid').innerHTML = list.map(p => `
     <div class="product-item" onclick="showProductDetail(${p.id})">
-      <div class="product-emoji">${p.emoji}</div>
+      <div class="product-emoji">${p.emoji || '📱'}</div>
       <div class="product-info">
         <div class="product-name">${p.name}</div>
         <div class="product-brand">${p.brand}</div>
         <div class="product-price-row">
-          <span class="product-price">¥${p.price.toLocaleString()}</span>
-          <span class="product-cost">¥${p.cost.toLocaleString()}</span>
-          <span class="product-profit-badge">+¥${(p.price - p.cost).toLocaleString()} · ${profitMargin(p)}%</span>
+          <span class="product-price">¥${fmtMoney(p.price)}</span>
+          <span class="product-cost">¥${fmtMoney(p.cost)}</span>
+          <span class="product-profit-badge">+¥${fmtMoney(p.profit)} · ${p.profitMargin}%</span>
         </div>
         <div class="product-tags">
-          ${p.tags.map(t => `<span class="product-tag">${t}</span>`).join('')}
+          ${(p.tags || []).map(t => `<span class="product-tag">${t}</span>`).join('')}
         </div>
         <div class="product-stock ${p.stock < 15 ? 'low' : 'ok'}">
           ${p.stock < 15 ? '⚠️' : '✅'} 库存 ${p.stock} 台
@@ -280,8 +359,8 @@ function applyProductFilters() {
     </div>`).join('');
 }
 
-function filterProducts() { applyProductFilters(); }
-function sortProducts() { applyProductFilters(); }
+async function filterProducts() { await applyProductFilters(); }
+async function sortProducts() { await applyProductFilters(); }
 
 function filterByBrand(brand, btn) {
   state.productFilter = brand;
@@ -290,43 +369,54 @@ function filterByBrand(brand, btn) {
   applyProductFilters();
 }
 
-function showProductDetail(id) {
-  const p = store.products.find(x => x.id === id);
+async function showProductDetail(id) {
+  let p = await api(`/products/${id}`);
+  if (!p) p = store.products.find(x => x.id === id);
   if (!p) return;
-  const profit = p.price - p.cost;
-  const margin = Math.round(profit / p.price * 100);
+  // 统一字段（API返回分，本地是元）
+  const price = p.price > 10000 ? fmtMoney(p.price) : p.price.toLocaleString();
+  const profit = p.profit ? fmtMoney(p.profit) : (p.price - p.cost).toLocaleString();
+  const margin = p.profitMargin || Math.round((p.price - p.cost) / p.price * 100);
+  const specs = typeof p.specs === 'string' ? JSON.parse(p.specs || '{}') : (p.specs || {});
+  const sps = typeof p.sellingPoints === 'string' ? JSON.parse(p.sellingPoints || '[]') : (p.sellingPoints || []);
+  const stock = p.stock;
+  const sold = p.sold;
+  const cost = p.cost > 10000 ? fmtMoney(p.cost) : p.cost.toLocaleString();
+  // 以下原逻辑保留但用新变量
+  const _profit = profit;
+  const _margin = margin;
   document.getElementById('productModalContent').innerHTML = `
-    <div class="pm-emoji">${p.emoji}</div>
+    <div class="pm-emoji">${p.emoji || '📱'}</div>
     <div class="pm-name">${p.name}</div>
     <div class="pm-brand">${p.brand}</div>
     <div class="pm-price-row">
       <div>
         <div style="font-size:11px;color:var(--text2);margin-bottom:4px">零售价</div>
-        <div class="pm-price">¥${p.price.toLocaleString()}</div>
+        <div class="pm-price">¥${price}</div>
       </div>
       <div class="pm-profit-box">
-        <div class="pm-profit-val">¥${profit.toLocaleString()}</div>
-        <div class="pm-profit-lbl">利润 ${margin}%</div>
+        <div class="pm-profit-val">¥${_profit}</div>
+        <div class="pm-profit-lbl">利润 ${_margin}%</div>
       </div>
     </div>
     <div class="pm-stats-grid">
       <div class="pm-stat-item">
-        <div class="pm-stat-val" style="color:var(--text2)">¥${p.cost.toLocaleString()}</div>
+        <div class="pm-stat-val" style="color:var(--text2)">¥${cost}</div>
         <div class="pm-stat-lbl">进价</div>
       </div>
       <div class="pm-stat-item">
-        <div class="pm-stat-val" style="color:var(--blue)">${p.stock}台</div>
+        <div class="pm-stat-val" style="color:var(--blue)">${stock}台</div>
         <div class="pm-stat-lbl">库存</div>
       </div>
       <div class="pm-stat-item">
-        <div class="pm-stat-val" style="color:var(--gold)">${p.sold}台</div>
+        <div class="pm-stat-val" style="color:var(--gold)">${sold}台</div>
         <div class="pm-stat-lbl">已售</div>
       </div>
     </div>
-    <div class="pm-desc">${p.desc}</div>
+    <div class="pm-desc">${p.description || p.desc || ''}</div>
     <div class="pm-specs">
       <h4>📋 规格参数</h4>
-      ${Object.entries(p.specs).map(([k, v]) => `
+      ${Object.entries(specs).map(([k, v]) => `
         <div class="pm-spec-row">
           <span class="pm-spec-key">${k}</span>
           <span class="pm-spec-val">${v}</span>
@@ -334,7 +424,7 @@ function showProductDetail(id) {
     </div>
     <div class="pm-selling-points">
       <h4>💬 销售话术要点</h4>
-      ${p.sellingPoints.map(sp => `
+      ${sps.map(sp => `
         <div class="pm-sp-item"><span>✦</span><span>${sp}</span></div>`).join('')}
     </div>
     <button class="btn-primary full-width" style="margin-top:12px" onclick="showAddOrderFromProduct(${p.id})">
@@ -356,55 +446,62 @@ function showAddOrderFromProduct(productId) {
 }
 
 // ===== ORDERS =====
-function renderOrders() {
-  const stats = {
-    all: store.orders.length,
-    pending: store.orders.filter(o => o.status === 'pending').length,
-    processing: store.orders.filter(o => o.status === 'processing').length,
-    completed: store.orders.filter(o => o.status === 'completed').length,
-    cancelled: store.orders.filter(o => o.status === 'cancelled').length,
-  };
-  document.getElementById('orderStats').innerHTML = [
-    { label: '全部', val: stats.all, color: 'var(--text)' },
-    { label: '待处理', val: stats.pending, color: 'var(--gold)' },
-    { label: '进行中', val: stats.processing, color: 'var(--blue)' },
-    { label: '已完成', val: stats.completed, color: 'var(--green)' },
-    { label: '已取消', val: stats.cancelled, color: 'var(--red)' },
-  ].map(s => `
-    <div class="order-stat-mini">
-      <div class="osm-val" style="color:${s.color}">${s.val}</div>
-      <div class="osm-lbl">${s.label}</div>
-    </div>`).join('');
-
-  applyOrderFilter();
+async function renderOrders() {
+  const stats = await api('/orders/stats');
+  if (stats) {
+    document.getElementById('orderStats').innerHTML = [
+      { label: '全部',   val: Object.values(stats).reduce((a,b) => a+b, 0), color: 'var(--text)' },
+      { label: '待处理', val: stats.pending    || 0, color: 'var(--gold)'  },
+      { label: '进行中', val: stats.processing || 0, color: 'var(--blue)'  },
+      { label: '已完成', val: stats.completed  || 0, color: 'var(--green)' },
+      { label: '已取消', val: stats.cancelled  || 0, color: 'var(--red)'   },
+    ].map(s => `
+      <div class="order-stat-mini">
+        <div class="osm-val" style="color:${s.color}">${s.val}</div>
+        <div class="osm-lbl">${s.label}</div>
+      </div>`).join('');
+    document.getElementById('pendingBadge').textContent = stats.pending || 0;
+  }
+  await applyOrderFilter();
 }
 
-function applyOrderFilter() {
+async function applyOrderFilter() {
   const filter = state.orderFilter;
-  const list = filter === 'all' ? store.orders : store.orders.filter(o => o.status === filter);
-  const statusMap = { pending: '待处理', processing: '进行中', completed: '已完成', cancelled: '已取消' };
+  let list = await api(`/orders${filter && filter !== 'all' ? '?status=' + filter : ''}`);
+  if (!list) list = filter === 'all' ? store.orders : store.orders.filter(o => o.status === filter);
+
+  const statusMap   = { pending: '待处理', processing: '进行中', completed: '已完成', cancelled: '已取消' };
   const statusClass = { pending: 'status-pending', processing: 'status-processing', completed: 'status-completed', cancelled: 'status-cancelled' };
 
-  document.getElementById('orderList').innerHTML = list.map(o => `
+  document.getElementById('orderList').innerHTML = list.map(o => {
+    const amt  = o.amount  > 100000 ? fmtMoney(o.amount)  : o.amount.toLocaleString();
+    const comm = o.commission > 10000 ? fmtMoney(o.commission) : o.commission;
+    const qty  = o.quantity || o.qty || 1;
+    const prod = o.productName || o.product || '';
+    const cust = o.customerName || o.customer || '';
+    const date = o.orderDate || o.date || '';
+    const oid  = o.orderNo  || o.id || '';
+    return `
     <div class="order-card">
       <div class="order-header">
-        <span class="order-id">${o.id}</span>
+        <span class="order-id">${oid}</span>
         <span class="order-status ${statusClass[o.status]}">${statusMap[o.status]}</span>
       </div>
-      <div class="order-product">📱 ${o.product} × ${o.qty}</div>
-      <div class="order-customer-row">👤 ${o.customer} ${o.note ? '· ' + o.note : ''}</div>
+      <div class="order-product">📱 ${prod} × ${qty}</div>
+      <div class="order-customer-row">👤 ${cust} ${o.note ? '· ' + o.note : ''}</div>
       <div class="order-footer">
         <div>
-          <div class="order-amount">¥${o.amount.toLocaleString()}</div>
-          <div class="order-commission">提成 ¥${o.commission}</div>
+          <div class="order-amount">¥${amt}</div>
+          <div class="order-commission">提成 ¥${comm}</div>
         </div>
         <div>
-          <div class="order-date">${o.date}</div>
-          ${o.status === 'pending' ? `<button class="filter-tab" style="margin-top:4px;padding:4px 10px;font-size:11px" onclick="updateOrderStatus('${o.id}','processing')">开始处理</button>` : ''}
-          ${o.status === 'processing' ? `<button class="filter-tab active" style="margin-top:4px;padding:4px 10px;font-size:11px" onclick="updateOrderStatus('${o.id}','completed')">标记完成</button>` : ''}
+          <div class="order-date">${date}</div>
+          ${o.status === 'pending'    ? `<button class="filter-tab" style="margin-top:4px;padding:4px 10px;font-size:11px" onclick="updateOrderStatus(${o.id},'processing')">开始处理</button>` : ''}
+          ${o.status === 'processing' ? `<button class="filter-tab active" style="margin-top:4px;padding:4px 10px;font-size:11px" onclick="updateOrderStatus(${o.id},'completed')">标记完成</button>` : ''}
         </div>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 function filterOrders(filter, btn) {
@@ -414,18 +511,17 @@ function filterOrders(filter, btn) {
   applyOrderFilter();
 }
 
-function updateOrderStatus(id, status) {
-  const order = store.orders.find(o => o.id === id);
-  if (order) {
-    order.status = status;
-    const msgs = { processing: '订单已开始处理！', completed: '🎉 订单完成！收入已记录' };
-    showToast(msgs[status] || '状态已更新');
-    if (status === 'completed') {
-      store.user.commission += order.commission;
-      store.user.done += order.qty;
-    }
-    renderOrders();
+async function updateOrderStatus(id, status) {
+  const data = await api(`/orders/${id}/status`, {
+    method: 'PUT', body: JSON.stringify({ status })
+  });
+  const msgs = { processing: '订单已开始处理！', completed: '🎉 订单完成！收入已记录' };
+  showToast(msgs[status] || '状态已更新');
+  if (!data) {
+    const order = store.orders.find(o => o.id === id);
+    if (order) { order.status = status; }
   }
+  renderOrders();
 }
 
 function showAddOrder() {
@@ -459,18 +555,23 @@ function submitOrder() {
 }
 
 // ===== CUSTOMERS =====
-function renderCustomers() {
-  applyCustomerFilter();
-}
+async function renderCustomers() { await applyCustomerFilter(); }
 
-function applyCustomerFilter() {
-  const search = document.getElementById('customerSearch')?.value.toLowerCase() || '';
+async function applyCustomerFilter() {
+  const keyword = document.getElementById('customerSearch')?.value.trim() || '';
   const segment = state.customerFilter;
-  let list = store.customers.filter(c => {
-    const matchSeg = segment === 'all' || c.segment === segment;
-    const matchSearch = c.name.includes(search) || c.phone.includes(search);
-    return matchSeg && matchSearch;
-  });
+  let params = '';
+  if (segment && segment !== 'all') params += `&segment=${segment}`;
+  if (keyword) params += `&keyword=${encodeURIComponent(keyword)}`;
+
+  let list = await api(`/customers?${params}`);
+  if (!list) {
+    list = store.customers.filter(c => {
+      const matchSeg = segment === 'all' || c.segment === segment;
+      const matchSearch = !keyword || c.name.includes(keyword) || c.phone.includes(keyword);
+      return matchSeg && matchSearch;
+    });
+  }
 
   const segLabels = { hot: '🔥 热客', warm: '☀️ 温客', cold: '❄️ 冷客', vip: '👑 VIP' };
   const segBadge = { hot: 'badge-hot', warm: 'badge-warm', cold: 'badge-cold', vip: 'badge-vip' };
@@ -494,7 +595,7 @@ function applyCustomerFilter() {
   }).join('');
 }
 
-function filterCustomers() { applyCustomerFilter(); }
+async function filterCustomers() { await applyCustomerFilter(); }
 
 function filterBySegment(segment, btn) {
   state.customerFilter = segment;
@@ -503,8 +604,9 @@ function filterBySegment(segment, btn) {
   applyCustomerFilter();
 }
 
-function showCustomerDetail(id) {
-  const c = store.customers.find(x => x.id === id);
+async function showCustomerDetail(id) {
+  let c = await api(`/customers/${id}`);
+  if (!c) c = store.customers.find(x => x.id === id);
   if (!c) return;
   state.selectedCustomerId = id;
   const segAvatarClass = { hot: 'seg-hot', warm: 'seg-warm', cold: 'seg-cold', vip: 'seg-vip' };
@@ -596,51 +698,93 @@ function showAddVisit(customerId) {
 
 function closeVisitModal() { closeModal('visitModal'); }
 
-function submitVisit() {
+async function submitVisit() {
   const type = document.getElementById('visitType').value;
   const note = document.getElementById('visitNote').value.trim();
   if (!note) { showToast('请填写拜访内容'); return; }
-  const c = store.customers.find(x => x.id === state.selectedCustomerId);
-  if (c) {
-    c.visits.unshift({ date: new Date().toISOString().split('T')[0], type, note });
-    closeVisitModal();
-    showToast('✅ 拜访记录已保存！+10 XP');
+
+  const data = await api(`/customers/${state.selectedCustomerId}/visits`, {
+    method: 'POST', body: JSON.stringify({ type, note })
+  });
+  closeVisitModal();
+  showToast('✅ 拜访记录已保存！+10 XP');
+  if (!data) {
+    const c = store.customers.find(x => x.id === state.selectedCustomerId);
+    if (c) c.visits.unshift({ date: new Date().toISOString().split('T')[0], type, note });
     store.user.xp += 10;
-    setTimeout(() => showCustomerDetail(state.selectedCustomerId), 350);
   }
+  setTimeout(() => showCustomerDetail(state.selectedCustomerId), 350);
 }
 
 function showAddCustomer() { openModal('addCustomerModal'); }
 function closeAddCustomer() { closeModal('addCustomerModal'); }
 
-function submitCustomer() {
-  const name = document.getElementById('newCustName').value.trim();
-  const phone = document.getElementById('newCustPhone').value.trim();
-  const age = parseInt(document.getElementById('newCustAge').value) || 0;
-  const job = document.getElementById('newCustJob').value.trim();
-  const budget = document.getElementById('newCustBudget').value;
+async function submitCustomer() {
+  const name    = document.getElementById('newCustName').value.trim();
+  const phone   = document.getElementById('newCustPhone').value.trim();
+  const age     = parseInt(document.getElementById('newCustAge').value) || 0;
+  const job     = document.getElementById('newCustJob').value.trim();
+  const budget  = document.getElementById('newCustBudget').value;
   const segment = document.getElementById('newCustSegment').value;
   if (!name || !phone) { showToast('请填写姓名和手机号'); return; }
-  store.customers.unshift({ id: Date.now(), name, phone, age, job, budget, segment, tags: [], visits: [], purchased: [], budget_actual: 0, tags2: [] });
+
+  const data = await api('/customers', {
+    method: 'POST', body: JSON.stringify({ name, phone, age, job, budget, segment })
+  });
+  if (data) {
+    store.customers.unshift(data);
+  } else {
+    store.customers.unshift({ id: Date.now(), name, phone, age, job, budget, segment, tags: [], visits: [], purchased: [], budgetActual: 0 });
+  }
   closeAddCustomer();
   showToast('✅ 客户已添加！');
   renderCustomers();
-  document.getElementById('dashCustomers').textContent = store.customers.length;
 }
 
 // ===== MONEY =====
-function renderMoney() {
-  const earnings = store.user.base + store.user.commission + store.user.bonus;
-  const projected = Math.round(earnings * (30 / new Date().getDate()) * 0.9);
-  document.getElementById('earningsBig').textContent = '¥' + earnings.toLocaleString();
-  document.getElementById('earningsProjected').textContent = '¥' + projected.toLocaleString();
-  document.getElementById('epBase').textContent = '¥' + store.user.base.toLocaleString();
-  document.getElementById('epComm').textContent = '¥' + store.user.commission.toLocaleString();
-  document.getElementById('epBonus').textContent = '¥' + store.user.bonus.toLocaleString();
+async function renderMoney() {
+  const data = await api('/earnings');
+  if (data) {
+    document.getElementById('earningsBig').textContent        = '¥' + fmtMoney(data.total);
+    document.getElementById('earningsProjected').textContent  = '¥' + fmtMoney(data.projected);
+    document.getElementById('epBase').textContent             = '¥' + fmtMoney(data.base);
+    document.getElementById('epComm').textContent             = '¥' + fmtMoney(data.commission);
+    document.getElementById('epBonus').textContent            = '¥' + fmtMoney(data.bonus);
+    renderMilestonesFromData(data.milestones);
+    renderIncomeChartFromData(data.base, data.commission, data.bonus);
+    renderHistoryChartFromData(data.history);
+  } else {
+    const earnings = store.user.base + store.user.commission + store.user.bonus;
+    const projected = Math.round(earnings * (30 / new Date().getDate()) * 0.9);
+    document.getElementById('earningsBig').textContent        = '¥' + earnings.toLocaleString();
+    document.getElementById('earningsProjected').textContent  = '¥' + projected.toLocaleString();
+    document.getElementById('epBase').textContent             = '¥' + store.user.base.toLocaleString();
+    document.getElementById('epComm').textContent             = '¥' + store.user.commission.toLocaleString();
+    document.getElementById('epBonus').textContent            = '¥' + store.user.bonus.toLocaleString();
+    renderMilestones();
+    renderIncomeChart();
+    renderHistoryChart();
+  }
+}
 
-  renderMilestones();
-  renderIncomeChart();
-  renderHistoryChart();
+function renderMilestonesFromData(milestones) {
+  document.getElementById('milestones').innerHTML = milestones.map(m => {
+    const pct = Math.min(100, Math.round(m.current / m.target * 100));
+    const achieved = m.current >= m.target;
+    const cls = achieved ? 'achieved' : (pct === 0 ? 'locked' : '');
+    return `
+    <div class="milestone-item ${cls}">
+      <div class="milestone-icon">${m.icon}</div>
+      <div class="milestone-info">
+        <div class="milestone-name">${m.name} ${achieved ? '✅' : ''}</div>
+        <div class="milestone-desc">${m.desc}</div>
+        <div class="milestone-progress-mini">
+          <div class="milestone-progress-fill" style="width:${pct}%"></div>
+        </div>
+      </div>
+      <div class="milestone-reward">${m.reward}</div>
+    </div>`;
+  }).join('');
 }
 
 function renderMilestones() {
@@ -670,6 +814,20 @@ function renderMilestones() {
   }).join('');
 }
 
+function renderIncomeChartFromData(base, commission, bonus) {
+  const ctx = document.getElementById('incomeChart');
+  if (!ctx) return;
+  if (state.charts.income) state.charts.income.destroy();
+  state.charts.income = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: ['底薪', '销售提成', '奖金'],
+      datasets: [{ data: [base, commission, bonus], backgroundColor: ['#4f46e5', '#10b981', '#d97706'], borderWidth: 0, hoverOffset: 6 }]
+    },
+    options: { responsive: true, plugins: { legend: { position: 'bottom', labels: { color: '#6b7280', font: { size: 12 }, padding: 16 } } } }
+  });
+}
+
 function renderIncomeChart() {
   const ctx = document.getElementById('incomeChart');
   if (!ctx) return;
@@ -694,6 +852,19 @@ function renderIncomeChart() {
         }
       }
     }
+  });
+}
+
+function renderHistoryChartFromData(history) {
+  const ctx = document.getElementById('historyChart');
+  if (!ctx) return;
+  if (state.charts.history) state.charts.history.destroy();
+  const labels = history.map(h => h.month);
+  const data   = history.map(h => h.amount / 100);
+  state.charts.history = new Chart(ctx, {
+    type: 'bar',
+    data: { labels, datasets: [{ label: '月收入', data, backgroundColor: 'rgba(79,70,229,0.7)', borderRadius: 6, borderSkipped: false }] },
+    options: { responsive: true, plugins: { legend: { display: false } }, scales: { x: { grid: { color: 'rgba(0,0,0,0.04)' }, ticks: { color: '#9ca3af', font: { size: 11 } } }, y: { grid: { color: 'rgba(0,0,0,0.04)' }, ticks: { color: '#9ca3af', font: { size: 11 }, callback: v => '¥' + (v / 1000).toFixed(0) + 'k' } } } }
   });
 }
 
@@ -725,8 +896,9 @@ function renderHistoryChart() {
 }
 
 // ===== RANK =====
-function renderRank() {
-  const top3 = store.leaderboard.slice(0, 3);
+async function renderRank() {
+  const lb = await api('/leaderboard') || store.leaderboard;
+  const top3 = lb.slice(0, 3);
   const crowns = ['👑', '🥈', '🥉'];
   const order = [1, 0, 2]; // podium order: 2nd, 1st, 3rd
 
@@ -742,7 +914,7 @@ function renderRank() {
     </div>`;
   }).join('');
 
-  const rest = store.leaderboard.slice(3);
+  const rest = lb.slice(3);
   document.getElementById('rankList').innerHTML = rest.map(p => `
     <div class="rank-item ${p.isMe ? 'is-me' : ''}">
       <div class="rank-num">${p.rank}</div>
@@ -757,7 +929,7 @@ function renderRank() {
       </div>
     </div>`).join('');
 
-  const me = store.leaderboard.find(p => p.isMe);
+  const me = lb.find(p => p.isMe);
   if (me) {
     const prev = store.leaderboard[me.rank - 2];
     const gap = prev ? prev.amount - me.amount : 0;
@@ -778,9 +950,11 @@ function renderRank() {
 }
 
 // ===== TRAINING =====
-function renderTraining() {
+async function renderTraining() {
   document.getElementById('userXP').textContent = store.user.xp;
 
+  // 每日提示
+  const dailyTip = await api('/training/daily-tip');
   const tips = [
     '第一印象决定70%的成交概率。进门前深呼吸，面带微笑，保持自信！',
     '倾听客户说话时，用眼睛看着客户，适时点头，让客户感受到被重视。',
@@ -788,7 +962,7 @@ function renderTraining() {
     '成交后立即做转介绍铺垫："您满意的话，欢迎介绍朋友来！"',
     '每天记录3个成功案例，找出规律，复制成功！',
   ];
-  const todayTip = tips[new Date().getDay() % tips.length];
+  const todayTip = dailyTip || tips[new Date().getDay() % tips.length];
   document.getElementById('dailyTip').innerHTML = `
     <div class="tip-label">💡 今日销售小贴士</div>
     <div class="tip-content">${todayTip}</div>
@@ -820,8 +994,10 @@ function filterTips(cat, btn) {
   renderTipsList();
 }
 
-function renderTipsList() {
-  const list = state.tipFilter === 'all' ? store.salesTips : store.salesTips.filter(t => t.category === state.tipFilter);
+async function renderTipsList() {
+  const cat = state.tipFilter;
+  let list = await api(`/training/tips${cat && cat !== 'all' ? '?category=' + cat : ''}`);
+  if (!list) list = cat === 'all' ? store.salesTips : store.salesTips.filter(t => t.category === cat);
   document.getElementById('tipsList').innerHTML = list.map(t => `
     <div class="tip-item" onclick="toggleTip(this)">
       <div class="tip-header">
@@ -837,15 +1013,20 @@ function toggleTip(el) {
   el.classList.toggle('expanded');
 }
 
-function renderQuiz() {
-  const quiz = store.quiz[Math.floor(Math.random() * store.quiz.length)];
-  state.currentQuiz = quiz;
+async function renderQuiz() {
+  const quiz = await api('/training/quiz');
+  const local = store.quiz[Math.floor(Math.random() * store.quiz.length)];
+  if (quiz) {
+    state.currentQuiz = { id: quiz.id, q: quiz.question, opts: JSON.parse(quiz.options), correct: quiz.correctIndex, explain: quiz.explanation };
+  } else {
+    state.currentQuiz = local;
+  }
   state.quizAnswered = false;
   state.quizSelected = null;
   document.getElementById('quizArea').innerHTML = `
-    <div class="quiz-question">${quiz.q}</div>
+    <div class="quiz-question">${state.currentQuiz.q}</div>
     <div class="quiz-options">
-      ${quiz.opts.map((o, i) => `
+      ${state.currentQuiz.opts.map((o, i) => `
         <div class="quiz-opt" onclick="selectQuizOpt(this, ${i})">${String.fromCharCode(65 + i)}. ${o}</div>`).join('')}
     </div>
     <button class="quiz-submit" onclick="submitQuiz()">提交答案</button>
@@ -860,21 +1041,29 @@ function selectQuizOpt(el, idx) {
   state.quizSelected = idx;
 }
 
-function submitQuiz() {
-  if (state.quizAnswered || state.quizSelected === null) {
-    showToast('请先选择答案');
-    return;
-  }
+async function submitQuiz() {
+  if (state.quizAnswered || state.quizSelected === null) { showToast('请先选择答案'); return; }
   state.quizAnswered = true;
-  const correct = state.quizSelected === state.currentQuiz.correct;
+
+  let result;
+  if (state.currentQuiz.id) {
+    result = await api(`/training/quiz/${state.currentQuiz.id}/submit`, {
+      method: 'POST', body: JSON.stringify({ selected: state.quizSelected })
+    });
+  }
+  const correct = result ? result.correct : (state.quizSelected === state.currentQuiz.correct);
+  const explain = result ? result.explanation : state.currentQuiz.explain;
+  const xp = result ? result.xpEarned : (correct ? 20 : 0);
+
   const opts = document.querySelectorAll('.quiz-opt');
   opts[state.currentQuiz.correct].classList.add('correct');
   if (!correct) opts[state.quizSelected].classList.add('wrong');
-  if (correct) store.user.xp += 20;
+  if (!result && correct) store.user.xp += 20;
+
   document.getElementById('quizResult').innerHTML = `
     <div class="quiz-result ${correct ? 'correct' : 'wrong'}">
-      ${correct ? '🎉 回答正确！+20 XP' : '❌ 回答错误'}<br>
-      <strong>解析：</strong>${state.currentQuiz.explain}
+      ${correct ? `🎉 回答正确！+${xp} XP` : '❌ 回答错误'}<br>
+      <strong>解析：</strong>${explain}
     </div>
     <button class="quiz-submit" style="margin-top:10px;background:rgba(255,255,255,0.1)" onclick="renderQuiz()">
       下一题 →
